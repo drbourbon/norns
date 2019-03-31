@@ -155,11 +155,13 @@ void screen_display_png(const char *filename, double x, double y){
 
 void screen_init(void) {
     surfacefb = cairo_linuxfb_surface_create();
+//    surfacefb = cairo_linuxfb_surface_create("/dev/fb1");
     if(surfacefb == NULL) { return; }
     crfb = cairo_create(surfacefb);
 
-    surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,128,64);
+    surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,480,320);
     cr = cairo_create(surface);
+    cairo_scale(cr, 3.6f, 3.6f);
 
     status = FT_Init_FreeType(&value);
     if(status != 0) {
