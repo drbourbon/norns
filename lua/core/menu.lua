@@ -34,6 +34,7 @@ local pRESET = 9
 local pSLEEP = 10
 local pTAPE = 11
 local pMIX = 12
+local pUPDATE = 13
 
 -- page pointer
 local m = {}
@@ -55,7 +56,7 @@ menu.shownav = false
 menu.showstats = false
 
 
----- METROS
+-- METROS
 local pending = false
 -- metro for key hold detection
 local metro = require 'core/metro'
@@ -223,10 +224,8 @@ end
 
 
 
--- --------------------------------------------------
 -- interfaces
 
------------------------------------------
 -- HOME
 
 m.home = {}
@@ -314,7 +313,6 @@ m.redraw[pHOME] = function()
 end
 
 
-----------------------------------------
 -- SELECT
 
 m.sel = {}
@@ -330,7 +328,7 @@ local function build_select_tree(root,dir)
 
   for _,v in pairs(c) do
     --print("---- " .. v)
-    if v == "data/" or v == "audio/" or v == 'lib/' then
+    if v == "data/" or v == "audio/" or v == 'lib/' or v == "docs" then
       --print(".")
     elseif string.find(v,'/') then
       build_select_tree(p,v)
@@ -401,7 +399,6 @@ end
 
 
 
------------------------------------------
 -- PREVIEW
 
 m.pre = {}
@@ -457,7 +454,6 @@ m.redraw[pPREVIEW] = function()
 end
 
 
------------------------------------------
 -- PARAMS
 
 m.params = {}
@@ -469,7 +465,6 @@ m.params.map = {}
 m.params.init_map = function()
   for i = 1,params.count do m.params.map[i] = -1 end
 end
-m.params.fine = false
 
 m.key[pPARAMS] = function(n,z)
   if menu.alt then
@@ -657,6 +652,7 @@ m.redraw[pPARAMS] = function()
 end
 
 m.init[pPARAMS] = function()
+  m.params.fine = false
   m.params.midimap = false
   m.params.midilearn = false
   m.params.action_text = ""
@@ -736,12 +732,11 @@ end
 
 
 
------------------------------------------
 -- SYSTEM
 m.sys = {}
 m.sys.pos = 1
-m.sys.list = {"AUDIO > ", "DEVICES > ", "WIFI >", "RESET"}
-m.sys.pages = {pAUDIO, pDEVICES, pWIFI, pRESET}
+m.sys.list = {"AUDIO > ", "DEVICES > ", "WIFI >", "RESET", "UPDATE"}
+m.sys.pages = {pAUDIO, pDEVICES, pWIFI, pRESET, pUPDATE}
 m.sys.input = 0
 
 m.key[pSYSTEM] = function(n,z)
@@ -780,7 +775,6 @@ m.init[pSYSTEM] = norns.none
 m.deinit[pSYSTEM] = norns.none
 
 
------------------------------------------
 -- DEVICES
 m.devices = {}
 m.devices.pos = 1
@@ -917,7 +911,6 @@ m.deinit[pDEVICES] = function() end
 
 
 
------------------------------------------
 -- WIFI
 m.wifi = {}
 m.wifi.pos = 0
@@ -1041,7 +1034,6 @@ m.deinit[pWIFI] = function()
   u:stop()
 end
 
------------------------------------------
 -- AUDIO
 
 m.audio = {}
@@ -1109,7 +1101,6 @@ m.deinit[pAUDIO] = function()
 end
 
 
------------------------------------------
 -- RESET
 m.reset = {}
 m.reset.confirmed = false
@@ -1144,7 +1135,118 @@ m.init[pRESET] = function() end
 m.deinit[pRESET] = function() end
 
 
------------------------------------------
+-- UPDATE
+
+m.update = {}
+m.update.url = ''
+m.update.version = ''
+
+local function check_newest()
+  print("checking for update")
+  m.update.url = util.os_capture( [[curl -s \
+      https://api.github.com/repos/monome/norns/releases/latest \
+      | grep "browser_download_url.*" \
+      | cut -d : -f 2,3 \
+      | tr -d \"]])
+  print(m.update.url)
+  m.update.version = m.update.url:match("(%d%d%d%d%d%d)")
+  print("available version "..m.update.version)
+end
+
+local function get_update()
+  m.update.message = "preparing..."
+  menu.redraw()
+  pcall(cleanup) -- shut down script
+  norns.script.clear()
+  print("shutting down audio...")
+  os.execute("sudo systemctl stop norns-jack.service") -- disable audio
+  print("clearing old updates...")
+  os.execute("sudo rm -rf /home/we/update/*") -- clear old updates
+  m.update.message = "downloading..."
+  menu.redraw()
+  print("starting download...")
+  os.execute("wget -T 180 -q -P /home/we/update/ " .. m.update.url) --download
+  m.update.message = "unpacking update..."
+  menu.redraw()
+  print("checksum validation...")
+  m.update.message = "checksum validation..."
+  local checksum = util.os_capture("cd /home/we/update; sha256sum -c /home/we/update/*.sha256 | grep OK")
+  if checksum:match("OK") then
+    print("unpacking...")
+    os.execute("tar xzvf /home/we/update/*.tgz -C /home/we/update/")
+    m.update.message = "running update..."
+    menu.redraw()
+    print("running update...")
+    os.execute("/home/we/update/"..m.update.version.."/update.sh")
+    m.update.message = "complete."
+    menu.redraw()
+    print("update complete.")
+  else
+    print("update failed.")
+    m.update.message = "update failed."
+    menu.redraw()
+  end
+end
+
+m.key[pUPDATE] = function(n,z)
+  if m.update.stage=="init" and z==1 then
+    menu.set_page(pSYSTEM)
+    menu.redraw()
+  elseif m.update.stage=="confirm" then
+    if n==2 and z==1 then
+      menu.set_page(pSYSTEM)
+      menu.redraw()
+    elseif n==3 and z==1 then
+      m.update.stage="update"
+      get_update()
+      m.update.stage="done"
+    end
+  elseif m.update.stage=="done" and z==1 then
+    print("shutting down.")
+    m.update.message = "shutting down."
+    menu.redraw()
+    os.execute("sleep 0.5; sudo shutdown now")
+  end
+end
+
+
+m.enc[pUPDATE] = function(n,delta) end
+
+m.redraw[pUPDATE] = function()
+  screen.clear()
+  screen.level(15)
+  screen.move(64,40)
+  if m.update.stage == "init" then
+    screen.text_center(m.update.message)
+  elseif m.update.stage == "confirm" then
+    screen.text_center("update found: "..m.update.version)
+    screen.move(64,50)
+    screen.text_center("install?")
+  elseif m.update.stage == "update" then
+    screen.text_center(m.update.message)
+  end
+  screen.update()
+end
+
+m.init[pUPDATE] = function()
+  m.update.stage = "init"
+
+  local ping = util.os_capture("ping -c 1 github.com | grep failure")
+  if ping == '' then check_newest() end
+
+  if not ping == ''  then
+    m.update.message = "need internet."
+  elseif tonumber(norns.version.update) >= tonumber(m.update.version) then
+    m.update.message = "up to date."
+  elseif norns.disk < 400 then
+    m.update.message = "disk full. need 400M."
+  else
+    m.update.stage = "confirm"
+  end
+end
+
+m.deinit[pUPDATE] = function() end
+
 
 -- SLEEP
 
@@ -1186,7 +1288,6 @@ m.init[pSLEEP] = norns.none
 m.deinit[pSLEEP] = norns.none
 
 
------------------------------------------
 -- MIX
 
 m.mix = {}
@@ -1202,7 +1303,7 @@ end
 
 m.enc[pMIX] = function(n,d)
   local ch1 = {"output", "monitor", "softcut"}
-  local ch2 = {"input", "ext", "tape"}
+  local ch2 = {"input", "engine", "tape"}
 
   if n==2 then
     mix:delta(ch1[m.mix.sel],d)
@@ -1253,7 +1354,7 @@ m.redraw[pMIX] = function()
   screen.stroke()
 
   screen.level(2)
-  n = mix:get_raw("ext")*48
+  n = mix:get_raw("engine")*48
   screen.rect(x+108.5,55.5,2,-n)
   screen.stroke()
 
@@ -1276,7 +1377,7 @@ m.redraw[pMIX] = function()
   screen.move(46,63)
   screen.text("mon")
   screen.move(68,63)
-  screen.text("ext")
+  screen.text("eng")
   screen.level(m.mix.sel==3 and 15 or 1)
   screen.move(90,63)
   screen.text("cut")
@@ -1313,7 +1414,6 @@ m.mix.vu = function(in1,in2,out1,out2)
 end
 
 
------------------------------------------
 -- TAPE
 
 local TAPE_MODE_PLAY = 1
