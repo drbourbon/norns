@@ -6,6 +6,7 @@
 
 #include "device.h"
 #include "device_midi.h"
+#include "../clocks/clock_midi.h"
 
 static int perr(char const *format, ...) {
     va_list args;
@@ -63,6 +64,8 @@ void* dev_midi_start(void *self) {
     do {
         read = snd_rawmidi_read(midi->handle_in, &byte, 1);
         if (byte >= 0xf8) {
+            clock_midi_handle_message(byte);
+
             ev = event_data_new(EVENT_MIDI_EVENT);
             ev->midi_event.id = midi->dev.id;
             ev->midi_event.data[0] = byte;

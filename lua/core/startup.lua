@@ -14,6 +14,7 @@ grid = require 'core/grid'
 arc = require 'core/arc'
 hid = require 'core/hid'
 metro = require 'core/metro'
+clock = require "core/clock"
 midi = require 'core/midi'
 osc = require 'core/osc'
 poll = require 'core/poll'
@@ -49,7 +50,6 @@ end
 norns.startup_status.ok = function()
   print("norns.startup_status.ok")
   -- resume last loaded script
-  norns.script.clear()
   norns.state.resume()
   -- turn on VU
   _norns.poll_start_vu()
